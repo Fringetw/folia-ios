@@ -67,7 +67,7 @@ struct SubtitleReadError: Error, Sendable {
         case "region-restricted": "來源拒絕存取或受地區限制。"
         case "captions-unavailable": "影片沒有可讀取的人工中文字幕軌，可試著辨識畫面內的字幕。"
         case "verification-required": "平台要求驗證或同意，暫時無法讀取公開字幕。"
-        case "caption-read-failed": "YouTube 列出字幕軌，但本次未提供內容，可能需驗證或受存取限制。"
+        case "caption-read-failed": "YouTube 列出中文字幕軌，但這次沒有回傳可讀取的字幕內容。"
         case "video-too-long": "目前只能辨識 10 分鐘內的翻譯影片。"
         case "ocr-empty": "畫面辨識未找到足夠的中文字幕。可試另一部翻譯影片或匯入字幕檔。"
         case "video-unavailable": "這部公開影片未提供可讀取的影像，可從「檔案」選擇已有的影片來辨識。"
@@ -82,4 +82,6 @@ struct SubtitleRecord: Sendable {
     let song: SubtitleSong
     var lines: [LyricLine]? = nil
     var translatedVideo: Bool = false
+    var translatedCCHint: Bool = false
+    var uploader: String? = nil
 }

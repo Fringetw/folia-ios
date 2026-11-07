@@ -81,6 +81,10 @@ struct LyricSearchScreen: View {
                         Text(record.song.title)
                         Text(record.song.artist + " · " + playbackTime(record.song.durationMs / 1000))
                             .font(.caption).foregroundStyle(.secondary)
+                        if let uploader = record.uploader {
+                            Text(record.translatedCCHint ? uploader + " · 標有 CC" : uploader)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }.disabled(subtitles.videoProgress != nil)
             }

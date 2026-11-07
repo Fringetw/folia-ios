@@ -21,6 +21,29 @@ enum SubtitleSourceChecks {
         precondition(YouTubeCaptionDecoders.isTranslatedUpload(jane))
         let translated = YouTubeCaptionDecoders.metadata(id: "t8HwSSH5Hes", title: jane, artist: "Mark Chong", duration: 236)
         precondition(translated.title == "JANE DOE" && translated.artist == "米津玄師 / 宇多田ヒカル")
+        let ccTitle = "【鏈鋸人】鏈鋸人劇場版-『鏈鋸人-蕾潔篇』片尾曲ED「JANE DOE」 米津玄師&宇多田光 |完整版|CC字幕|中日字幕 【4K】"
+        let cc = YouTubeCaptionDecoders.metadata(id: "RCXjG2tsojs", title: ccTitle, artist: "真尋醬是全世界最可愛的♡", duration: 236)
+        precondition(cc.title == "JANE DOE" && cc.artist == "米津玄師 / 宇多田光")
+        precondition(YouTubeCaptionDecoders.isTranslatedUpload(ccTitle))
+        let originalSong = YouTubeCaptionDecoders.metadata(id: "sPLqsLsooJY",
+            title: "米津玄師, 宇多田ヒカル Kenshi Yonezu, Hikaru Utada -  JANE DOE",
+            artist: "Kenshi Yonezu  米津玄師和Hikaru Utada", duration: 247)
+        precondition(originalSong.title == "JANE DOE" && originalSong.artist == "米津玄師 / 宇多田ヒカル", "Unexpected original video metadata: \(originalSong.title) / \(originalSong.artist)")
+        let originalRecord = SubtitleRecord(song: originalSong)
+        let ccPage = """
+        var ytInitialData = {"contents":[{"videoRenderer":{
+          "videoId":"RCXjG2tsojs","title":{"simpleText":"\(ccTitle)"},
+          "ownerText":{"simpleText":"真尋醬是全世界最可愛的♡"},"lengthText":{"simpleText":"3:56"}
+        }}]};
+        """
+        let ccRecords = try YouTubeCaptionDecoders.search(ccPage)
+        precondition(ccRecords.count == 1)
+        let ccRecord = ccRecords[0]
+        precondition(ccRecord.song == cc && ccRecord.translatedCCHint && ccRecord.uploader == "真尋醬是全世界最可愛的♡")
+        let broadRecord = SubtitleRecord(song: translated, translatedVideo: true)
+        let ranked = YouTubeCaptionDecoders.rankedSearchResults(withCC: [broadRecord, originalRecord, ccRecord],
+            broad: [originalRecord, broadRecord])
+        precondition(ranked.map(\.song.id) == ["RCXjG2tsojs", "t8HwSSH5Hes", "sPLqsLsooJY"])
         let timed = (0..<8).map { i in LyricLine(startTime: Double(i) * 2, endTime: Double(i) * 2 + 1.8, fullText: "Line \(i)") }
         let shifted = timed.map { LyricLine(startTime: $0.startTime + 0.55, endTime: $0.endTime + 0.55, fullText: "中文譯文") }
         let paired = SubtitleSourceDecoders.attach(timed, translations: shifted)
@@ -71,6 +94,23 @@ enum SubtitleSourceChecks {
         precondition(tracks.count == 3 && tracks[0].chinese && !tracks[0].automatic && tracks[1].automatic)
         precondition(tracks.allSatisfy { $0.url.query?.contains("fmt=json3") == true })
         let signedWatch = watch.replacingOccurrences(of: "lang=zh-Hant", with: "lang=zh-Hant&signature=a%2Bb")
+        let config = #"ytcfg.set({"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.20261107.00.00"}},"INNERTUBE_API_KEY":"public-fixture-api-key","PLAYER_JS_URL":"/s/player/example/base.js","VISITOR_DATA":"anonymous-fixture"});"#
+        let earlierConfig = #"ytcfg.set('EXPERIMENT_FLAGS', {}); ytcfg.set({"loaded":true}); ytcfg.set({unquoted:true});"#
+        let web = try YouTubeCaptionDecoders.webCaptionRequest(earlierConfig + config + watch, videoID: "abcdefghijk")
+        precondition(web.script.absoluteString == "https://www.youtube.com/s/player/example/base.js")
+        precondition(web.endpoint.path == "/youtubei/v1/player" && web.headers["X-Goog-Visitor-Id"] == "anonymous-fixture")
+        let stamp = try YouTubeCaptionDecoders.signatureTimestamp(Data("player={signatureTimestamp: 12345};".utf8))
+        let body = try SubtitleSourceDecoders.object(web.body(signatureTimestamp: stamp))
+        precondition(body["videoId"] as? String == "abcdefghijk" && stamp == 12345)
+        precondition(body["contentCheckOk"] == nil && body["racyCheckOk"] == nil)
+        let freshData = try JSONSerialization.data(withJSONObject: YouTubeCaptionDecoders.playerResponse(watch, videoID: "abcdefghijk"))
+        let freshTracks = try YouTubeCaptionDecoders.tracks(playerData: freshData, videoID: "abcdefghijk")
+        precondition(freshTracks == tracks)
+        let unrelatedScript = config.replacingOccurrences(of: "/s/player/example/base.js", with: "https://example.com/s/player/example/base.js")
+        do {
+            _ = try YouTubeCaptionDecoders.webCaptionRequest(unrelatedScript + watch, videoID: "abcdefghijk")
+            preconditionFailure("Player script outside the YouTube origin was accepted")
+        } catch is SubtitleReadError {}
         let signedTracks = try YouTubeCaptionDecoders.tracks(signedWatch, videoID: "abcdefghijk")
         precondition(signedTracks[0].url.absoluteString.contains("signature=a%2Bb"))
         for raw in ["http://www.youtube.com/api/timedtext", "https://youtube.com.evil.example/api/timedtext",

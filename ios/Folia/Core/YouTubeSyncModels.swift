@@ -139,6 +139,9 @@ enum DownloadSongMatch {
         return clean.components(separatedBy: CharacterSet(charactersIn: "/／、,，&＆;；×"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }
+    // QQ uses the Chinese credit for this artist on releases also listed under the Japanese name.
+    private static let utadaKeys = Set(["宇多田光", "宇多田ヒカル", "Hikaru Utada"].map(normalized))
+
     static func artistKeys(_ text: String) -> Set<String> {
         var keys = Set<String>()
         for name in artistNames(text) {
@@ -153,18 +156,26 @@ enum DownloadSongMatch {
                 }
             }
         }
+        if !keys.isDisjoint(with: utadaKeys) { keys.formUnion(utadaKeys) }
         return keys
     }
     static func matches(_ song: SyncedYouTubeSong, title: String, artists: [String], duration: Double?) -> Bool {
+        let versionTags = versions(song.title)
         guard let expected = song.duration, let duration, expected.isFinite, duration.isFinite,
-              expected > 0, duration > 0, duration <= 5400, versions(song.title) == versions(title) else { return false }
+              expected > 0, duration > 0, duration <= 5400, versionTags == versions(title) else { return false }
         let metadata = YouTubeCaptionDecoders.metadata(id: song.videoID, title: song.title, artist: song.artist, duration: expected)
-        let videoPresentation = song.title.range(of: #"(?i)music video|official mv|\bmv\b|【AMV|「[^」]+」"#, options: .regularExpression) != nil
-        // Music-video intros are allowed only with strong title/performer evidence. Actual downloaded
-        // audio must separately match the chosen provider recording's duration and decode completely.
-        guard sameDuration(expected, duration) || (videoPresentation && duration <= expected + 3 && expected - duration <= 18) else { return false }
-        let keys = artists.reduce(into: Set<String>()) { $0.formUnion(artistKeys($1)) }
         let performers = artistNames(metadata.artist)
+        let videoPresentation = song.title.range(of: #"(?i)music video|official mv|\bmv\b|【AMV|「[^」]+」"#, options: .regularExpression) != nil
+        // A duet video can have an intro even if the uploader omits "MV" from "Artists - Song".
+        // Only allow a shorter album candidate with the same exact title and all credited artists.
+        let hasMultipleCredits = versionTags.isEmpty && performers.count > 1
+            && song.title.components(separatedBy: " - ").count == 2
+            && normalized(metadata.title) == normalized(searchTitle(title))
+        let difference = expected - duration
+        let labelledVideoLength = videoPresentation && difference >= -3 && difference <= 18
+        let creditedVideoLength = hasMultipleCredits && difference > 0 && difference <= min(18, expected * 0.06)
+        guard sameDuration(expected, duration) || labelledVideoLength || creditedVideoLength else { return false }
+        let keys = artists.reduce(into: Set<String>()) { $0.formUnion(artistKeys($1)) }
         let requested = artistKeys(metadata.artist).union(artistKeys(song.artist))
         guard !keys.isDisjoint(with: requested) else { return false }
         if performers.count > 1 {
